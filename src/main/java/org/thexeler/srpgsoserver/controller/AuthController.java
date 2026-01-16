@@ -1,33 +1,105 @@
 package org.thexeler.srpgsoserver.controller;
 
+import org.thexeler.srpgsoserver.dto.request.AllSecurityRequest;
+import org.thexeler.srpgsoserver.dto.request.PasswordRequest;
+import org.thexeler.srpgsoserver.dto.request.TokenRequest;
+import org.thexeler.srpgsoserver.dto.data.User;
+import org.thexeler.srpgsoserver.kits.TokenData;
+import org.thexeler.srpgsoserver.kits.TokenKits;
+import org.thexeler.srpgsoserver.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-import org.thexeler.srpgsoserver.request.LoginRequest;
-import org.thexeler.srpgsoserver.response.LoginResponse;
-import org.thexeler.srpgsoserver.service.UserService;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/auth")
+@CrossOrigin
 public class AuthController {
 
     @Autowired
-    private UserService userService;
+    private UserRepository userRepository;
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody LoginRequest request) {
-        if (userService.validateUser(request.getUsername(), request.getPassword())) {
-            return ResponseEntity.ok(new LoginResponse("Login successful", generateToken()));
-        } else {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid credentials");
+    public Map<String, Object> login(@RequestBody PasswordRequest passwordRequest) {
+        Optional<User> userOptional = userRepository.findByUsername(passwordRequest.getUsername());
+
+        if (userOptional.isEmpty()) {
+            return Map.of("message", "Invalid username or password");
         }
+
+        User user = userOptional.get();
+        if (!passwordEncoder.matches(passwordRequest.getPassword(), user.getPassword())) {
+            return Map.of("message", "Invalid username or password");
+        }
+
+        return Map.of("message", "Success", "token", TokenKits.generateToken(userRepository, user));
     }
 
-    private String generateToken() {
-        return java.util.UUID.randomUUID().toString();
+    @PostMapping("/register")
+    public Map<String, Object> register(@RequestBody PasswordRequest registerRequest) {
+        if (userRepository.findByUsername(registerRequest.getUsername()).isPresent()) {
+            return Map.of("message", "Username already exists");
+        }
+
+        User newUser = new User();
+        newUser.setUsername(registerRequest.getUsername());
+        newUser.setPassword(passwordEncoder.encode(registerRequest.getPassword()));
+        newUser.setAdmin(true);
+
+        userRepository.save(newUser);
+
+        return Map.of("message", "Success", "token", TokenKits.generateToken(userRepository, newUser));
+    }
+
+    @PostMapping("/changePassword")
+    public Map<String, Object> changePassword(@RequestBody AllSecurityRequest allSecurityRequest) {
+        Optional<User> userOptional = userRepository.findByUsername(allSecurityRequest.getUsername());
+        if (userOptional.isEmpty()) {
+            return Map.of("message", "Invalid username");
+        }
+
+        User user = userOptional.get();
+        if (!allSecurityRequest.getToken().equals(user.getLastToken())) {
+            return Map.of("message", "Invalid token");
+        }
+
+        user.setPassword(passwordEncoder.encode(allSecurityRequest.getPassword()));
+        userRepository.save(user);
+
+        return Map.of("message", "Success");
+    }
+
+    @PostMapping("/update")
+    public Map<String, Object> update(@RequestBody TokenRequest tokenRequest) {
+        Optional<User> userOptional = userRepository.findByUsername(tokenRequest.getUsername());
+        if (userOptional.isEmpty()) {
+            return Map.of("message", "Invalid username");
+        }
+
+        User user = userOptional.get();
+        if (!tokenRequest.getToken().equals(user.getLastToken())) {
+            return Map.of("message", "Invalid token");
+        }
+
+        return Map.of("message", "Success", "token", TokenKits.generateToken(userRepository, user));
+    }
+
+    @PostMapping("/verify")
+    public Map<String, Object> verify(@RequestBody TokenRequest tokenRequest) {
+        Optional<User> userOptional = userRepository.findByUsername(tokenRequest.getUsername());
+        if (userOptional.isEmpty()) {
+            return Map.of("message", "Invalid username");
+        }
+
+        User user = userOptional.get();
+        boolean isValid = tokenRequest.getToken().equals(user.getLastToken()) &&
+                TokenKits.verifyToken(new TokenData(tokenRequest.getToken()), tokenRequest.getUsername());
+
+        return Map.of("message", "Success", "isValid", isValid);
     }
 }
