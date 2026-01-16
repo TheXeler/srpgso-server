@@ -27,13 +27,11 @@ public class GameTaskScheduler {
 
         isNextDayCalculating = true;
 
-        userRepository.findAll().forEach(user -> {
-            taskExecutor.execute(() -> {
-                SrpgsoServerApplication.logger.info("Checking user {}...", user.getUsername());
+        userRepository.findAll().forEach(user -> taskExecutor.execute(() -> {
+            SrpgsoServerApplication.logger.info("Checking user {}...", user.getUsername());
 
-                SrpgsoServerApplication.logger.info("User {} saved.", user.getUsername());
-            });
-        });
+            SrpgsoServerApplication.logger.info("User {} saved.", user.getUsername());
+        }));
 
         isNextDayCalculating = false;
 
